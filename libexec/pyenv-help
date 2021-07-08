@@ -27,6 +27,8 @@ command_path() {
 }
 
 extract_initial_comment_block() {
+  LC_ALL= \
+  LC_CTYPE=C \
   sed -ne "
     /^#/ !{
       q
@@ -42,7 +44,8 @@ extract_initial_comment_block() {
 }
 
 collect_documentation() {
-  $(type -p gawk awk | head -1) '
+  # shellcheck disable=SC2016
+  $(type -P gawk awk | head -1) '
     /^Summary:/ {
       summary = substr($0, 10)
       next
@@ -86,7 +89,8 @@ collect_documentation() {
 }
 
 documentation_for() {
-  local filename="$(command_path "$1")"
+  local filename
+  filename="$(command_path "$1")"
   if [ -n "$filename" ]; then
     extract_initial_comment_block < "$filename" | collect_documentation
   fi
@@ -114,7 +118,7 @@ print_help() {
   eval "$(documentation_for "$command")"
   [ -n "$help" ] || help="$summary"
 
-  if [ -n "$usage" -o -n "$summary" ]; then
+  if [ -n "$usage" ] || [ -n "$summary" ]; then
     if [ -n "$usage" ]; then
       echo "$usage"
     else
@@ -149,10 +153,10 @@ if [ -z "$1" ] || [ "$1" == "pyenv" ]; then
   [ -z "$usage" ] || exit
   echo
   echo "Some useful pyenv commands are:"
-  print_summaries commands local global shell install uninstall rehash version versions which whence
+  print_summaries $(exec pyenv-commands | sort -u)
   echo
   echo "See \`pyenv help <command>' for information on a specific command."
-  echo "For full documentation, see: https://github.com/yyuu/pyenv#readme"
+  echo "For full documentation, see: https://github.com/pyenv/pyenv#readme"
 else
   command="$1"
   if [ -n "$(command_path "$command")" ]; then

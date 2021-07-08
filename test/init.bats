@@ -39,7 +39,7 @@ eval "\$(pyenv-init -)"
 echo \$PYENV_SHELL
 OUT
   chmod +x myscript.sh
-  run ./myscript.sh /bin/zsh
+  run ./myscript.sh
   assert_success "sh"
 }
 
@@ -47,13 +47,13 @@ OUT
   root="$(cd $BATS_TEST_DIRNAME/.. && pwd)"
   run pyenv-init - fish
   assert_success
-  assert_line ". '${root}/test/../libexec/../completions/pyenv.fish'"
+  assert_line "source '${root}/test/../libexec/../completions/pyenv.fish'"
 }
 
 @test "fish instructions" {
   run pyenv-init fish
   assert [ "$status" -eq 1 ]
-  assert_line 'status --is-interactive; and source (pyenv init -|psub)'
+  assert_line 'pyenv init - | source'
 }
 
 @test "option to skip rehash" {
@@ -64,30 +64,30 @@ OUT
 
 @test "adds shims to PATH" {
   export PATH="${BATS_TEST_DIRNAME}/../libexec:/usr/bin:/bin:/usr/local/bin"
-  run pyenv-init - bash
+  run pyenv-init --path bash
   assert_success
   assert_line 0 'export PATH="'${PYENV_ROOT}'/shims:${PATH}"'
 }
 
 @test "adds shims to PATH (fish)" {
   export PATH="${BATS_TEST_DIRNAME}/../libexec:/usr/bin:/bin:/usr/local/bin"
-  run pyenv-init - fish
+  run pyenv-init --path fish
   assert_success
-  assert_line 0 "setenv PATH '${PYENV_ROOT}/shims' \$PATH"
+  assert_line 0 "set -gx PATH '${PYENV_ROOT}/shims' \$PATH"
 }
 
 @test "can add shims to PATH more than once" {
   export PATH="${PYENV_ROOT}/shims:$PATH"
-  run pyenv-init - bash
+  run pyenv-init --path bash
   assert_success
   assert_line 0 'export PATH="'${PYENV_ROOT}'/shims:${PATH}"'
 }
 
 @test "can add shims to PATH more than once (fish)" {
   export PATH="${PYENV_ROOT}/shims:$PATH"
-  run pyenv-init - fish
+  run pyenv-init --path fish
   assert_success
-  assert_line 0 "setenv PATH '${PYENV_ROOT}/shims' \$PATH"
+  assert_line 0 "set -gx PATH '${PYENV_ROOT}/shims' \$PATH"
 }
 
 @test "outputs sh-compatible syntax" {

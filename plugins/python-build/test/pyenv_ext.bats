@@ -5,11 +5,11 @@ export PYTHON_BUILD_CACHE_PATH="$TMP/cache"
 export MAKE=make
 export MAKE_OPTS="-j 2"
 export CC=cc
+export PYTHON_BUILD_HTTP_CLIENT="curl"
 
 export TMP_FIXTURES="$TMP/fixtures"
 
 setup() {
-  ensure_not_found_in_path aria2c
   mkdir -p "$INSTALL_ROOT"
   stub md5 false
   stub curl false
@@ -89,17 +89,30 @@ install_tmp_fixture() {
 }
 
 resolve_link() {
-  $(type -p greadlink readlink | head -1) "$1"
+  $(type -P greadlink readlink | head -1) "$1"
+}
+
+run_inline_definition_with_name() {
+  local definition_name="build-definition"
+  case "$1" in
+  "--name="* )
+    local definition_name="${1#--name=}"
+    shift 1
+    ;;
+  esac
+  local definition="${TMP}/${definition_name}"
+  cat > "$definition"
+  run python-build "$definition" "${1:-$INSTALL_ROOT}"
 }
 
 @test "apply built-in python patch before building" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
   stub brew false
   stub_make_install
   stub patch ' : echo patch "$@" | sed -E "s/\.[[:alnum:]]+$/.XXX/" >> build.log'
 
-  echo | install_patch definitions/vanilla-python "Python-3.2.1/empty.patch"
+  echo | install_patch definitions/vanilla-python "Python-3.6.2/empty.patch"
 
   # yyuu/pyenv#257
   stub uname '-s : echo Linux'
@@ -110,8 +123,8 @@ resolve_link() {
 
   assert_build_log <<OUT
 patch -p0 --force -i $TMP/python-patch.XXX
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs4
+Python-3.6.2: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
+Python-3.6.2: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib
 make -j 2
 make install
 OUT
@@ -121,15 +134,15 @@ OUT
 }
 
 @test "apply built-in python patches should be sorted by its name" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
   stub brew false
   stub_make_install
   stub patch ' : for arg; do [[ "$arg" == "-"* ]] || sed -e "s/^/patch: /" "$arg"; done >> build.log'
 
-  echo "foo" | install_patch definitions/vanilla-python "Python-3.2.1/foo.patch"
-  echo "bar" | install_patch definitions/vanilla-python "Python-3.2.1/bar.patch"
-  echo "baz" | install_patch definitions/vanilla-python "Python-3.2.1/baz.patch"
+  echo "foo" | install_patch definitions/vanilla-python "Python-3.6.2/foo.patch"
+  echo "bar" | install_patch definitions/vanilla-python "Python-3.6.2/bar.patch"
+  echo "baz" | install_patch definitions/vanilla-python "Python-3.6.2/baz.patch"
 
   # yyuu/pyenv#257
   stub uname '-s : echo Linux'
@@ -142,8 +155,8 @@ OUT
 patch: bar
 patch: baz
 patch: foo
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs4
+Python-3.6.2: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
+Python-3.6.2: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib
 make -j 2
 make install
 OUT
@@ -153,7 +166,7 @@ OUT
 }
 
 @test "allow custom make install target" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
   stub brew false
   stub "$MAKE" \
@@ -168,8 +181,8 @@ OUT
   assert_success
 
   assert_build_log <<OUT
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs4
+Python-3.6.2: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
+Python-3.6.2: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib
 make -j 2
 make altinstall
 OUT
@@ -236,15 +249,15 @@ OUT
 }
 
 @test "enable framework" {
-  mkdir -p "${INSTALL_ROOT}/Python.framework/Versions/Current/bin"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3-config"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3-config"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4-config"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4-config"
+  mkdir -p "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin"
+  touch "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3"
+  chmod +x "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3"
+  touch "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3.4"
+  chmod +x "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3.4"
+  touch "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3-config"
+  chmod +x "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3-config"
+  touch "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3.4-config"
+  chmod +x "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python3.4-config"
 
   # yyuu/pyenv#257
   stub uname '-s : echo Darwin'
@@ -257,11 +270,11 @@ verify_python python3.4
 OUT
   assert_success
   assert_output <<EOS
-PYTHON_CONFIGURE_OPTS_ARRAY=(--libdir=${TMP}/install/lib --enable-framework=${TMP}/install)
+PYTHON_CONFIGURE_OPTS_ARRAY=(--libdir=${TMP}/install/lib --enable-framework=${TMP}/install/Library/Frameworks)
 EOS
 
-  [ -L "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python" ]
-  [ -L "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python-config" ]
+  [ -L "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python" ]
+  [ -L "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python-config" ]
 }
 
 @test "enable universalsdk" {
@@ -280,7 +293,7 @@ EOS
 }
 
 @test "enable custom unicode configuration" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
   stub brew false
   stub "$MAKE" \
@@ -291,8 +304,8 @@ EOS
   assert_success
 
   assert_build_log <<OUT
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --enable-unicode=ucs2 --libdir=$INSTALL_ROOT/lib
+Python-3.6.2: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
+Python-3.6.2: --prefix=$INSTALL_ROOT --enable-unicode=ucs2 --libdir=$INSTALL_ROOT/lib
 make -j 2
 make install
 OUT
@@ -325,4 +338,44 @@ echo "\${MACOSX_DEPLOYMENT_TARGET}"
 OUT
   assert_success
   assert_output "10.4"
+}
+
+@test "use the default EZ_SETUP_URL by default" {
+  run_inline_definition <<OUT
+echo "\${EZ_SETUP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/ez_setup.py"
+  assert_success
+}
+
+@test "use the default GET_PIP_URL by default" {
+  run_inline_definition <<OUT
+echo "\${GET_PIP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/get-pip.py"
+  assert_success
+}
+
+@test "use the custom GET_PIP_URL for 2.6 versions" {
+  run_inline_definition_with_name --name=2.6 <<OUT
+echo "\${GET_PIP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/pip/2.6/get-pip.py"
+  assert_success
+}
+
+@test "use the custom GET_PIP_URL for 3.2 versions" {
+  run_inline_definition_with_name --name=3.2 <<OUT
+echo "\${GET_PIP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/pip/3.2/get-pip.py"
+  assert_success
+}
+
+@test "use the custom GET_PIP_URL for 3.3 versions" {
+  run_inline_definition_with_name --name=3.3 <<OUT
+echo "\${GET_PIP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/pip/3.3/get-pip.py"
+  assert_success
 }

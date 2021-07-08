@@ -10,29 +10,51 @@ PROTOTYPE_SHIM_PATH="${SHIM_PATH}/.pyenv-shim"
 # Create the shims directory if it doesn't already exist.
 mkdir -p "$SHIM_PATH"
 
-# Ensure only one instance of pyenv-rehash is running at a time by
-# setting the shell's `noclobber` option and attempting to write to
-# the prototype shim file. If the file already exists, print a warning
-# to stderr and exit with a non-zero status.
-set -o noclobber
-{ echo > "$PROTOTYPE_SHIM_PATH"
-} 2>/dev/null ||
-{ if [ -w "$SHIM_PATH" ]; then
-    echo "pyenv: cannot rehash: $PROTOTYPE_SHIM_PATH exists"
-  else
-    echo "pyenv: cannot rehash: $SHIM_PATH isn't writable"
-  fi
-  exit 1
-} >&2
-set +o noclobber
+acquire_lock() {
+  # Ensure only one instance of pyenv-rehash is running at a time by
+  # setting the shell's `noclobber` option and attempting to write to
+  # the prototype shim file. If the file already exists, print a warning
+  # to stderr and exit with a non-zero status.
+  local ret
+  set -o noclobber
+  echo > "$PROTOTYPE_SHIM_PATH" 2>| /dev/null || ret=1
+  set +o noclobber
+  [ -z "${ret}" ]
+}
 
 # If we were able to obtain a lock, register a trap to clean up the
 # prototype shim when the process exits.
-trap remove_prototype_shim EXIT
+trap release_lock EXIT
 
 remove_prototype_shim() {
   rm -f "$PROTOTYPE_SHIM_PATH"
 }
+
+release_lock() {
+  remove_prototype_shim
+}
+
+if [ ! -w "$SHIM_PATH" ]; then
+  echo "pyenv: cannot rehash: $SHIM_PATH isn't writable"
+  exit 1
+fi
+
+unset acquired
+start=$SECONDS
+while (( SECONDS <= start + ${PYENV_REHASH_TIMEOUT:-60} )); do
+  if acquire_lock 2>/dev/null; then
+    acquired=1
+    break
+  else
+    # POSIX sleep(1) doesn't provide subsecond precision, but many others do
+    sleep 0.1 2>/dev/null || sleep 1
+  fi
+done
+
+if [ -z "${acquired}" ]; then
+  echo "pyenv: cannot rehash: $PROTOTYPE_SHIM_PATH exists"
+  exit 1
+fi
 
 # The prototype shim file is a script that re-execs itself, passing
 # its filename and any arguments to `pyenv exec`. This file is
@@ -46,19 +68,6 @@ set -e
 [ -n "\$PYENV_DEBUG" ] && set -x
 
 program="\${0##*/}"
-if [[ "\$program" = "python"* ]]; then
-  for arg; do
-    case "\$arg" in
-    -c* | -- ) break ;;
-    */* )
-      if [ -f "\$arg" ]; then
-        export PYENV_FILE_ARG="\$arg"
-        break
-      fi
-      ;;
-    esac
-  done
-fi
 
 export PYENV_ROOT="$PYENV_ROOT"
 exec "$(command -v pyenv)" exec "\$program" "\$@"
@@ -83,7 +92,7 @@ remove_outdated_shims() {
 list_executable_names() {
   local version file
   pyenv-versions --bare --skip-aliases | \
-  while read version; do
+  while read -r version; do
     for file in "${PYENV_ROOT}/versions/${version}/bin/"*; do
       echo "${file##*/}"
     done
@@ -101,34 +110,62 @@ make_shims() {
   done
 }
 
-registered_shims=" "
+if ((${BASH_VERSINFO[0]} > 3)); then
 
-# Registers the name of a shim to be generated.
-register_shim() {
-  registered_shims="${registered_shims}${1} "
-}
+  declare -A registered_shims
 
-# Install all the shims registered via `make_shims` or `register_shim` directly.
-install_registered_shims() {
-  local shim file
-  for shim in $registered_shims; do
-    file="${SHIM_PATH}/${shim}"
-    [ -e "$file" ] || cp "$PROTOTYPE_SHIM_PATH" "$file"
-  done
-}
+  # Registers the name of a shim to be generated.
+  register_shim() {
+    registered_shims["$1"]=1
+  }
 
-# Once the registered shims have been installed, we make a second pass
-# over the contents of the shims directory. Any file that is present
-# in the directory but has not been registered as a shim should be
-# removed.
-remove_stale_shims() {
-  local shim
-  for shim in "$SHIM_PATH"/*; do
-    if [[ "$registered_shims" != *" ${shim##*/} "* ]]; then
-      rm -f "$shim"
-    fi
-  done
-}
+  # Install all shims registered via `make_shims` or `register_shim` directly.
+  install_registered_shims() {
+    local shim file
+    for shim in "${!registered_shims[@]}"; do
+      file="${SHIM_PATH}/${shim}"
+      [ -e "$file" ] || cp "$PROTOTYPE_SHIM_PATH" "$file"
+    done
+  }
+
+  # Once the registered shims have been installed, we make a second pass
+  # over the contents of the shims directory. Any file that is present
+  # in the directory but has not been registered as a shim should be
+  # removed.
+  remove_stale_shims() {
+    local shim
+    for shim in "$SHIM_PATH"/*; do
+      if [[ ! ${registered_shims["${shim##*/}"]} ]]; then
+        rm -f "$shim"
+      fi
+    done
+  }
+
+else # Same for bash < 4.
+
+    registered_shims=" "
+
+    register_shim() {
+      registered_shims="${registered_shims}${1} "
+    }
+
+    install_registered_shims() {
+      local shim file
+      for shim in $registered_shims; do
+        file="${SHIM_PATH}/${shim}"
+        [ -e "$file" ] || cp "$PROTOTYPE_SHIM_PATH" "$file"
+      done
+    }
+
+    remove_stale_shims() {
+      local shim
+      for shim in "$SHIM_PATH"/*; do
+        if [[ "$registered_shims" != *" ${shim##*/} "* ]]; then
+          rm -f "$shim"
+        fi
+      done
+    }
+fi
 
 shopt -s nullglob
 
@@ -136,6 +173,7 @@ shopt -s nullglob
 # executables.
 create_prototype_shim
 remove_outdated_shims
+# shellcheck disable=SC2046
 make_shims $(list_executable_names | sort -u)
 
 
