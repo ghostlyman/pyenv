@@ -1,13 +1,10 @@
 #!/usr/bin/env bats
 
 load test_helper
-export PYTHON_BUILD_SKIP_MIRROR=1
-export PYTHON_BUILD_CACHE_PATH=
-export PYTHON_BUILD_ARIA2_OPTS=
-
-setup() {
-  ensure_not_found_in_path aria2c
-  export PYTHON_BUILD_BUILD_PATH="${TMP}/source"
+_setup() {
+  export PYTHON_BUILD_SKIP_MIRROR=1
+  export PYTHON_BUILD_CACHE_PATH=
+  export PYTHON_BUILD_BUILD_PATH="${BATS_TEST_TMPDIR}/source"
   mkdir -p "${PYTHON_BUILD_BUILD_PATH}"
 }
 
@@ -21,7 +18,9 @@ setup() {
 }
 
 @test "using aria2c if available" {
-  stub aria2c "--allow-overwrite=true --no-conf=true -o * http://example.com/* : cp $FIXTURE_ROOT/\${5##*/} \$4"
+  export PYTHON_BUILD_ARIA2_OPTS=
+  export -n PYTHON_BUILD_HTTP_CLIENT
+  stub aria2c "--allow-overwrite=true --no-conf=true -d * -o * http://example.com/* : cp $FIXTURE_ROOT/\${7##*/} \$6"
 
   install_fixture definitions/without-checksum
   assert_success
@@ -29,7 +28,7 @@ setup() {
 Downloading package-1.0.0.tar.gz...
 -> http://example.com/packages/package-1.0.0.tar.gz
 Installing package-1.0.0...
-Installed package-1.0.0 to ${TMP}/install
+Installed package-1.0.0 to ${BATS_TEST_TMPDIR}/install
 OUT
   unstub aria2c
 }
@@ -44,7 +43,7 @@ DEF
   assert_output <<OUT
 Cloning http://example.com/packages/package.git...
 Installing package-dev...
-Installed package-dev to ${TMP}/install
+Installed package-dev to ${BATS_TEST_TMPDIR}/install
 OUT
   unstub git
 }
@@ -62,7 +61,7 @@ DEF
   assert_output <<OUT
 Cloning http://example.com/packages/package.git...
 Installing package-dev...
-Installed package-dev to ${TMP}/install
+Installed package-dev to ${BATS_TEST_TMPDIR}/install
 OUT
   unstub git
 }

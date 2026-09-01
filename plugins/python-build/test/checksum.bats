@@ -3,11 +3,6 @@
 load test_helper
 export PYTHON_BUILD_SKIP_MIRROR=1
 export PYTHON_BUILD_CACHE_PATH=
-export PYTHON_BUILD_CURL_OPTS=
-
-setup() {
-  ensure_not_found_in_path aria2c
-}
 
 
 @test "package URL without checksum" {
@@ -108,11 +103,10 @@ setup() {
 @test "existing tarball in build location is reused" {
   stub shasum true "echo ba988b1bb4250dee0b9dd3d4d722f9c64b2bacfc805d1b6eba7426bda72dd3c5"
   stub curl false
-  stub curl false
   stub wget false
 
   export -n PYTHON_BUILD_CACHE_PATH
-  export PYTHON_BUILD_BUILD_PATH="${TMP}/build"
+  export PYTHON_BUILD_BUILD_PATH="${BATS_TEST_TMPDIR}/build"
 
   mkdir -p "$PYTHON_BUILD_BUILD_PATH"
   ln -s "${FIXTURE_ROOT}/package-1.0.0.tar.gz" "$PYTHON_BUILD_BUILD_PATH"
@@ -134,7 +128,7 @@ DEF
   stub curl "-q -o * -*S* http://example.com/* : cp $FIXTURE_ROOT/\${5##*/} \$3"
 
   export -n PYTHON_BUILD_CACHE_PATH
-  export PYTHON_BUILD_BUILD_PATH="${TMP}/build"
+  export PYTHON_BUILD_BUILD_PATH="${BATS_TEST_TMPDIR}/build"
 
   mkdir -p "$PYTHON_BUILD_BUILD_PATH"
   touch "${PYTHON_BUILD_BUILD_PATH}/package-1.0.0.tar.gz"

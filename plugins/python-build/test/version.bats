@@ -2,8 +2,8 @@
 
 load test_helper
 
-bats_bin="${BATS_TEST_DIRNAME}/../bin/python-build"
-static_version="$(grep VERSION "$bats_bin" | head -1 | cut -d'"' -f 2)"
+python_build_bin="${BATS_TEST_DIRNAME}/../bin/python-build"
+static_version="$(grep VERSION "$python_build_bin" | head -n1 | cut -d'"' -f 2)"
 
 @test "python-build static version" {
   stub git 'echo "ASPLODE" >&2; exit 1'
@@ -14,7 +14,7 @@ static_version="$(grep VERSION "$bats_bin" | head -1 | cut -d'"' -f 2)"
 
 @test "python-build git version" {
   stub git \
-    'remote -v : echo origin https://github.com/yyuu/pyenv.git' \
+    'remote -v : echo origin https://github.com/pyenv/pyenv.git' \
     "describe --tags HEAD : echo v1984-12-gSHA"
   run python-build --version
   assert_success "python-build 1984-12-gSHA"
@@ -23,7 +23,7 @@ static_version="$(grep VERSION "$bats_bin" | head -1 | cut -d'"' -f 2)"
 
 @test "git describe fails" {
   stub git \
-    'remote -v : echo origin https://github.com/yyuu/pyenv.git' \
+    'remote -v : echo origin https://github.com/pyenv/pyenv.git' \
     "describe --tags HEAD : echo ASPLODE >&2; exit 1"
   run python-build --version
   assert_success "python-build ${static_version}"
@@ -32,8 +32,7 @@ static_version="$(grep VERSION "$bats_bin" | head -1 | cut -d'"' -f 2)"
 
 @test "git remote doesn't match" {
   stub git \
-    'remote -v : echo origin https://github.com/Homebrew/homebrew.git' \
-    "describe --tags HEAD : echo v1984-12-gSHA"
+    'remote -v : echo origin https://github.com/Homebrew/homebrew.git'
   run python-build --version
   assert_success "python-build ${static_version}"
 }

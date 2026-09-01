@@ -1,15 +1,14 @@
 #!/usr/bin/env bats
 
 load test_helper
-export PYTHON_BUILD_CACHE_PATH="$TMP/cache"
-export MAKE=make
-export MAKE_OPTS="-j 2"
-export CC=cc
 
-export TMP_FIXTURES="$TMP/fixtures"
-
-setup() {
-  ensure_not_found_in_path aria2c
+_setup() {
+  export PYTHON_BUILD_CACHE_PATH="$BATS_TEST_TMPDIR/cache"
+  export MAKE=make
+  export MAKE_OPTS="-j 2"
+  export CC=cc
+  export PYTHON_BUILD_HTTP_CLIENT="curl"
+  export TMP_FIXTURES="$BATS_TEST_TMPDIR/fixtures"
   mkdir -p "$INSTALL_ROOT"
   stub md5 false
   stub curl false
@@ -89,29 +88,42 @@ install_tmp_fixture() {
 }
 
 resolve_link() {
-  $(type -p greadlink readlink | head -1) "$1"
+  $(type -P greadlink readlink | head -n1) "$1"
+}
+
+run_inline_definition_with_name() {
+  local definition_name="build-definition"
+  case "$1" in
+  "--name="* )
+    local definition_name="${1#--name=}"
+    shift 1
+    ;;
+  esac
+  local definition="${BATS_TEST_TMPDIR}/${definition_name}"
+  cat > "$definition"
+  run python-build "$definition" "${1:-$INSTALL_ROOT}"
 }
 
 @test "apply built-in python patch before building" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
   stub brew false
   stub_make_install
   stub patch ' : echo patch "$@" | sed -E "s/\.[[:alnum:]]+$/.XXX/" >> build.log'
 
-  echo | install_patch definitions/vanilla-python "Python-3.2.1/empty.patch"
+  echo | install_patch definitions/vanilla-python "Python-3.6.2/empty.patch"
 
   # yyuu/pyenv#257
   stub uname '-s : echo Linux'
   stub uname '-s : echo Linux'
 
-  TMPDIR="$TMP" install_tmp_fixture definitions/vanilla-python < /dev/null
+  TMPDIR="$BATS_TEST_TMPDIR" install_tmp_fixture definitions/vanilla-python < /dev/null
   assert_success
 
   assert_build_log <<OUT
-patch -p0 --force -i $TMP/python-patch.XXX
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs4
+patch -p0 --force -i $BATS_TEST_TMPDIR/python-patch.XXX
+Python-3.6.2: CPPFLAGS="-I${BATS_TEST_TMPDIR}/install/include" LDFLAGS="-L${BATS_TEST_TMPDIR}/install/lib -Wl,-rpath,${BATS_TEST_TMPDIR}/install/lib"
+Python-3.6.2: --prefix=$INSTALL_ROOT --enable-shared --libdir=$INSTALL_ROOT/lib
 make -j 2
 make install
 OUT
@@ -121,29 +133,27 @@ OUT
 }
 
 @test "apply built-in python patches should be sorted by its name" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
-  stub brew false
+  for i in {1..2}; do stub brew '* : false'; done
   stub_make_install
   stub patch ' : for arg; do [[ "$arg" == "-"* ]] || sed -e "s/^/patch: /" "$arg"; done >> build.log'
 
-  echo "foo" | install_patch definitions/vanilla-python "Python-3.2.1/foo.patch"
-  echo "bar" | install_patch definitions/vanilla-python "Python-3.2.1/bar.patch"
-  echo "baz" | install_patch definitions/vanilla-python "Python-3.2.1/baz.patch"
+  echo "foo" | install_patch definitions/vanilla-python "Python-3.6.2/foo.patch"
+  echo "bar" | install_patch definitions/vanilla-python "Python-3.6.2/bar.patch"
+  echo "baz" | install_patch definitions/vanilla-python "Python-3.6.2/baz.patch"
 
-  # yyuu/pyenv#257
-  stub uname '-s : echo Linux'
   stub uname '-s : echo Linux'
 
-  TMPDIR="$TMP" install_tmp_fixture definitions/vanilla-python < /dev/null
+  TMPDIR="$BATS_TEST_TMPDIR" install_tmp_fixture definitions/vanilla-python < /dev/null
   assert_success
 
   assert_build_log <<OUT
 patch: bar
 patch: baz
 patch: foo
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs4
+Python-3.6.2: CPPFLAGS="-I${BATS_TEST_TMPDIR}/install/include" LDFLAGS="-L${BATS_TEST_TMPDIR}/install/lib -Wl,-rpath,${BATS_TEST_TMPDIR}/install/lib"
+Python-3.6.2: --prefix=$INSTALL_ROOT --enable-shared --libdir=$INSTALL_ROOT/lib
 make -j 2
 make install
 OUT
@@ -153,23 +163,21 @@ OUT
 }
 
 @test "allow custom make install target" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
   stub brew false
   stub "$MAKE" \
     " : echo \"$MAKE \$@\" >> build.log" \
     " : echo \"$MAKE \$@\" >> build.log && cat build.log >> '$INSTALL_ROOT/build.log'"
 
-  # yyuu/pyenv#257
-  stub uname '-s : echo Linux'
-  stub uname '-s : echo Linux'
+  stub uname '-s : echo Darwin'
 
-  PYTHON_MAKE_INSTALL_TARGET="altinstall" TMPDIR="$TMP" install_tmp_fixture definitions/vanilla-python < /dev/null
+  PYTHON_MAKE_INSTALL_TARGET="altinstall" TMPDIR="$BATS_TEST_TMPDIR" install_tmp_fixture definitions/vanilla-python < /dev/null
   assert_success
 
   assert_build_log <<OUT
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs4
+Python-3.6.2: CPPFLAGS="-I${BATS_TEST_TMPDIR}/install/include" LDFLAGS="-L${BATS_TEST_TMPDIR}/install/lib -Wl,-rpath,${BATS_TEST_TMPDIR}/install/lib"
+Python-3.6.2: --prefix=$INSTALL_ROOT --enable-shared --libdir=$INSTALL_ROOT/lib
 make -j 2
 make altinstall
 OUT
@@ -185,13 +193,13 @@ echo "python \$@" >> "${INSTALL_ROOT}/build.log"
 OUT
   chmod +x "${INSTALL_ROOT}/bin/python"
 
-  PYTHON_MAKE_INSTALL_TARGET="" TMPDIR="$TMP" run_inline_definition <<OUT
+  PYTHON_MAKE_INSTALL_TARGET="" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
 build_package_ensurepip
 OUT
   assert_success
 
   assert_build_log <<OUT
-python -s -m ensurepip
+python -I -m ensurepip
 OUT
 }
 
@@ -203,13 +211,13 @@ echo "python \$@" >> "${INSTALL_ROOT}/build.log"
 OUT
   chmod +x "${INSTALL_ROOT}/bin/python"
 
-  PYTHON_MAKE_INSTALL_TARGET="altinstall" TMPDIR="$TMP" run_inline_definition <<OUT
+  PYTHON_MAKE_INSTALL_TARGET="altinstall" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
 build_package_ensurepip
 OUT
   assert_success
 
   assert_build_log <<OUT
-python -s -m ensurepip --altinstall
+python -I -m ensurepip --altinstall
 OUT
 }
 
@@ -224,8 +232,8 @@ OUT
   touch "${INSTALL_ROOT}/bin/python3.4-config"
   chmod +x "${INSTALL_ROOT}/bin/python3.4-config"
 
-  TMPDIR="$TMP" run_inline_definition <<OUT
-verify_python python3.4
+  TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
+verify_python 3.4
 OUT
   assert_success
 
@@ -236,78 +244,115 @@ OUT
 }
 
 @test "enable framework" {
-  mkdir -p "${INSTALL_ROOT}/Python.framework/Versions/Current/bin"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3-config"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3-config"
-  touch "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4-config"
-  chmod +x "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python3.4-config"
-
-  # yyuu/pyenv#257
-  stub uname '-s : echo Darwin'
+  framework_path="${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin"
+  mkdir -p "$framework_path"
+  for executable in python3{,.4}{,-config}; do 
+    touch "$framework_path/$executable"
+    chmod +x "$framework_path/$executable"
+  done
+  unset framework_path executable
 
   stub uname '-s : echo Darwin'
+  stub sw_vers '-productVersion : echo 10.10'
 
-  PYTHON_CONFIGURE_OPTS="--enable-framework" TMPDIR="$TMP" run_inline_definition <<OUT
+  PYTHON_CONFIGURE_OPTS="--enable-framework" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
 echo "PYTHON_CONFIGURE_OPTS_ARRAY=(\${PYTHON_CONFIGURE_OPTS_ARRAY[@]})"
-verify_python python3.4
+echo "PYTHON_CONFIGURE_OPTS=(\${PYTHON_CONFIGURE_OPTS})"
+echo "CONFIGURE_OPTS=(\${CONFIGURE_OPTS})"
+verify_python 3.4
 OUT
   assert_success
   assert_output <<EOS
-PYTHON_CONFIGURE_OPTS_ARRAY=(--libdir=${TMP}/install/lib --enable-framework=${TMP}/install)
+PYTHON_CONFIGURE_OPTS_ARRAY=(--libdir=${BATS_TEST_TMPDIR}/install/lib --enable-framework=${BATS_TEST_TMPDIR}/install/Library/Frameworks)
+PYTHON_CONFIGURE_OPTS=()
+CONFIGURE_OPTS=()
 EOS
 
-  [ -L "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python" ]
-  [ -L "${INSTALL_ROOT}/Python.framework/Versions/Current/bin/python-config" ]
+  [ -L "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python" ]
+  [ -L "${INSTALL_ROOT}/Library/Frameworks/Python.framework/Versions/Current/bin/python-config" ]
 }
 
 @test "enable universalsdk" {
-  # yyuu/pyenv#257
+  
   stub uname '-s : echo Darwin'
+  stub sw_vers '-productVersion : echo 10.10'
+  stub arch "echo x86_64"
+
+  PYTHON_CONFIGURE_OPTS="--enable-universalsdk" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
+echo "PYTHON_CONFIGURE_OPTS_ARRAY=(\${PYTHON_CONFIGURE_OPTS_ARRAY[@]})"
+echo "PYTHON_CONFIGURE_OPTS=(\${PYTHON_CONFIGURE_OPTS})"
+echo "CONFIGURE_OPTS=(\${CONFIGURE_OPTS})"
+OUT
+  assert_success
+  assert_output <<EOS
+PYTHON_CONFIGURE_OPTS_ARRAY=(--enable-shared --libdir=${BATS_TEST_TMPDIR}/install/lib --enable-universalsdk=/)
+PYTHON_CONFIGURE_OPTS=()
+CONFIGURE_OPTS=()
+EOS
+}
+
+@test "enable universalsdk on Apple Silicon" {
 
   stub uname '-s : echo Darwin'
+  stub sw_vers '-productVersion : echo 11.7'
+  stub arch "echo arm64"
 
-  PYTHON_CONFIGURE_OPTS="--enable-universalsdk" TMPDIR="$TMP" run_inline_definition <<OUT
+  PYTHON_CONFIGURE_OPTS="--enable-universalsdk" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
+echo "PYTHON_CONFIGURE_OPTS_ARRAY=(\${PYTHON_CONFIGURE_OPTS_ARRAY[@]})"
+echo "PYTHON_CONFIGURE_OPTS=(\${PYTHON_CONFIGURE_OPTS})"
+echo "CONFIGURE_OPTS=(\${CONFIGURE_OPTS})"
+OUT
+  assert_success
+  assert_output <<EOS
+PYTHON_CONFIGURE_OPTS_ARRAY=(--enable-shared --libdir=${BATS_TEST_TMPDIR}/install/lib --enable-universalsdk=/ --with-universal-archs=universal2)
+PYTHON_CONFIGURE_OPTS=()
+CONFIGURE_OPTS=()
+EOS
+}
+
+@test "enable universalsdk with explicit archs argument" {
+
+  stub uname '-s : echo Darwin'
+  stub sw_vers '-productVersion : echo 11.7'
+
+  PYTHON_CONFIGURE_OPTS="--enable-universalsdk --with-universal-archs=foo" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
 echo "PYTHON_CONFIGURE_OPTS_ARRAY=(\${PYTHON_CONFIGURE_OPTS_ARRAY[@]})"
 OUT
   assert_success
   assert_output <<EOS
-PYTHON_CONFIGURE_OPTS_ARRAY=(--libdir=${TMP}/install/lib --enable-universalsdk=/ --with-universal-archs=intel)
+PYTHON_CONFIGURE_OPTS_ARRAY=(--enable-shared --libdir=${BATS_TEST_TMPDIR}/install/lib --enable-universalsdk=/)
 EOS
 }
 
 @test "enable custom unicode configuration" {
-  cached_tarball "Python-3.2.1"
+  cached_tarball "Python-3.6.2"
 
-  stub brew false
+  for i in {1..4}; do stub brew false; done
+  stub uname '-s : echo Linux'
   stub "$MAKE" \
     " : echo \"$MAKE \$@\" >> build.log" \
     " : echo \"$MAKE \$@\" >> build.log && cat build.log >> '$INSTALL_ROOT/build.log'"
 
-  PYTHON_CONFIGURE_OPTS="--enable-unicode=ucs2" TMPDIR="$TMP" install_tmp_fixture definitions/vanilla-python < /dev/null
+  PYTHON_CONFIGURE_OPTS="--enable-unicode=ucs2" TMPDIR="$BATS_TEST_TMPDIR" install_tmp_fixture definitions/vanilla-python < /dev/null
   assert_success
 
   assert_build_log <<OUT
-Python-3.2.1: CPPFLAGS="-I${TMP}/install/include " LDFLAGS="-L${TMP}/install/lib "
-Python-3.2.1: --prefix=$INSTALL_ROOT --enable-unicode=ucs2 --libdir=$INSTALL_ROOT/lib
+Python-3.6.2: CPPFLAGS="-I${BATS_TEST_TMPDIR}/install/include" LDFLAGS="-L${BATS_TEST_TMPDIR}/install/lib -Wl,-rpath,${BATS_TEST_TMPDIR}/install/lib"
+Python-3.6.2: --prefix=$INSTALL_ROOT --enable-shared --libdir=$INSTALL_ROOT/lib --enable-unicode=ucs2
 make -j 2
 make install
 OUT
 
   unstub make
+  unstub uname
 }
 
 @test "default MACOSX_DEPLOYMENT_TARGET" {
   # yyuu/pyenv#257
   stub uname '-s : echo Darwin'
-
-  stub uname '-s : echo Darwin'
   stub sw_vers '-productVersion : echo 10.10'
 
-  TMPDIR="$TMP" run_inline_definition <<OUT
+  TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
 echo "\${MACOSX_DEPLOYMENT_TARGET}"
 OUT
   assert_success
@@ -320,9 +365,62 @@ OUT
 
   stub uname '-s : echo Darwin'
 
-  MACOSX_DEPLOYMENT_TARGET="10.4" TMPDIR="$TMP" run_inline_definition <<OUT
+  MACOSX_DEPLOYMENT_TARGET="10.4" TMPDIR="$BATS_TEST_TMPDIR" run_inline_definition <<OUT
 echo "\${MACOSX_DEPLOYMENT_TARGET}"
 OUT
   assert_success
   assert_output "10.4"
+}
+
+@test "use the default EZ_SETUP_URL by default" {
+  run_inline_definition <<OUT
+echo "\${EZ_SETUP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/ez_setup.py"
+  assert_success
+}
+
+@test "use the default GET_PIP_URL by default" {
+  run_inline_definition <<OUT
+echo "\${GET_PIP_URL}"
+OUT
+  assert_output "https://bootstrap.pypa.io/get-pip.py"
+  assert_success
+}
+
+@test "use custom GET_PIP_URLs" {
+
+  declare -a name_subdir=(\
+  2.6
+  2.7
+  3.2
+  3.3
+  3.4
+  3.5
+  3.6
+  3.7
+  3.8
+  3.9
+
+  "pypy2.7-7.3.12   2.7"
+  "pypy-c-jit-latest-linux    2.7"
+  "pypy3.5-7.0.0    3.5"
+  "pypy3.6-7.3.3    3.6"
+  "pypy3.7-7.3.3    3.7"
+  "pypy3.8-7.3.8    3.8"
+  "pypy3.9-7.3.16   3.9"
+
+  "pyston-2.3.5     3.8"
+  )
+
+  for item_s in "${name_subdir[@]}"; do
+    item=($item_s)
+    name="${item[0]}"
+    subdir="${item[1]:-$name}"
+    run_inline_definition_with_name --name="$name" <<OUT
+echo "\${DEFINITION_PATH##*/}:\${GET_PIP_URL}"
+OUT
+    assert_output "$name:https://bootstrap.pypa.io/pip/$subdir/get-pip.py"
+    assert_success
+  done
 }

@@ -2,8 +2,8 @@
 
 load test_helper
 
-setup() {
-  mkdir -p "$PYENV_TEST_DIR"
+_setup() {
+  mkdir -p "${PYENV_TEST_DIR}"
   cd "$PYENV_TEST_DIR"
 }
 
@@ -26,7 +26,7 @@ setup() {
 }
 
 @test "detects local file" {
-  touch .python-version
+  echo "system" > .python-version
   run pyenv-version-origin
   assert_success "${PWD}/.python-version"
 }
